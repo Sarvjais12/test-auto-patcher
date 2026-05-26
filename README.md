@@ -69,7 +69,7 @@ Copy the `https://xxxx.ngrok.io` URL.
 - Go to your repo → **Settings** → **Webhooks** → **Add webhook**
 - Payload URL: `https://xxxx.ngrok.io/webhook`
 - Content type: `application/json`
-- Secret: same value as `GITHUB_WEBHOOK_SECRET` in your `.env`
+- Secret: same value as `GITHUB_WEBHOOK_SECRET` in `.env`
 - Events: select **"Repository vulnerability alerts"**
 
 ---
@@ -92,7 +92,7 @@ Push to main → Dependabot fires → webhook hits your server → PR appears au
 ```
 github-auto-patcher/
 ├── main.py           # all the logic lives here
-├── .env.example      # template for your secrets
+├── .env.example      # template for secrets
 ├── requirements.txt  # Python dependencies
 └── README.md
 ```
