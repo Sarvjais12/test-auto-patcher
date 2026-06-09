@@ -1,7 +1,10 @@
+# Pin to a minimum known-good version for each dependency.
+# For a production deploy, run `pip freeze > requirements.lock` and commit
+# that file so every environment gets the exact same package graph.
 
-fastapi
-uvicorn
-groq
-PyGithub
-python-dotenv
-requests
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+groq>=0.9.0
+PyGithub>=2.1.0
+python-dotenv>=1.0.0
+requests>=2.31.0
