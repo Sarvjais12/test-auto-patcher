@@ -1,14 +1,14 @@
 """
-test_main.py — Full test suite for GitHub Auto-Patcher.
+test_main.py
 
-Covers every code path: security, webhook routing, Groq output sanitization,
-the full patch pipeline, duplicate-PR guard, and branch cleanup on failure.
+76 tests covering every path through the auto-patcher.
+No real API keys used anywhere — GitHub and Groq are fully mocked.
 
-No real API keys needed — everything external is mocked.
-
-Run:
-    pip install pytest httpx2
+Run with:
     pytest test_main.py -v
+
+I split the tests into groups by what they're testing so failures are
+easy to locate. Each class name tells you what broke.
 """
 
 import base64
