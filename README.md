@@ -1,79 +1,52 @@
 # GitHub Auto-Patcher
 
-A FastAPI service that listens for GitHub Dependabot vulnerability alerts, asks an LLM to generate the exact dependency fix, and automatically opens a Pull Request — all within seconds of the alert firing, no developer intervention needed.
+I built this because Dependabot is great at finding vulnerable dependencies but it doesn't actually fix anything — it just opens an issue and waits for a developer to deal with it. For a team managing a lot of repos, that backlog grows fast and "fix the vulnerable dep" always ends up below "ship the feature" on the priority list.
 
-Built with Python, FastAPI, Groq (Llama 3.3-70b), and the GitHub API.
-
----
-
-## What it does
-
-Security scanners like Dependabot are great at finding vulnerable dependencies. The problem is they just tell you *what's* broken — you still have to open the file, change the version, commit, and create a PR yourself. For a team managing dozens of repos, that's a lot of manual work that often gets pushed to "later."
-
-This tool closes that loop. When Dependabot detects a vulnerability, it fires a webhook to this service. The service reads the manifest file from your repo, sends it to Groq's Llama 3 model with instructions to upgrade the vulnerable package, and then commits the fix and opens a PR — all automatically.
-
-The time between "Dependabot fires" and "PR is open on GitHub" is about 5–10 seconds.
+So this service closes that loop. When Dependabot fires an alert, the patcher wakes up, reads your manifest, asks an LLM to bump the broken package to a safe version, and opens a PR — all automatically, usually within 10 seconds of the alert firing.
 
 ---
 
-## How it works
+## How it actually works
 
 ```
-GitHub Dependabot
-      │
-      │  fires repository_vulnerability_alert webhook
-      ▼
-FastAPI /webhook endpoint
-      │
-      ├─ verifies HMAC-SHA256 signature
-      ├─ checks for duplicate open PRs (idempotency)
-      │
-      ▼
-Groq API (Llama 3.3-70b)
-      │
-      │  returns patched requirements.txt / package.json
-      ▼
-GitHub API
-      │
-      ├─ creates a new fix branch
-      ├─ commits the patched file
-      └─ opens a Pull Request
+GitHub Dependabot detects requests==2.28.0 (vulnerable)
+          │
+          │  fires a webhook
+          ▼
+  POST /webhook  (this service)
+          │
+          ├── verifies the HMAC signature so we know it's really from GitHub
+          ├── checks if there's already an open patch PR (avoids duplicates)
+          │
+          ▼
+  Groq API  →  Llama 3.3-70b reads requirements.txt, upgrades the package
+          │
+          ▼
+  GitHub API
+          ├── creates a new branch  (fix/requests-20260613...)
+          ├── commits the updated requirements.txt
+          └── opens a Pull Request  🎉
 ```
 
-The webhook endpoint responds to GitHub immediately (before the pipeline runs) so it never hits GitHub's 10-second delivery timeout. The actual patching runs in a background thread.
+The webhook endpoint returns 200 to GitHub immediately. The actual patching runs in a background thread so we never hit GitHub's 10-second delivery timeout.
 
 ---
 
-## Tech stack
+## Stack
 
-| Layer | Technology |
+| What | Tech |
 |---|---|
-| Web framework | FastAPI |
-| ASGI server | Uvicorn |
-| LLM | Groq API — Llama 3.3-70b-versatile |
+| Web server | FastAPI + Uvicorn |
+| LLM | Groq — Llama 3.3-70b-versatile |
 | GitHub integration | PyGithub |
-| Local tunnel (dev) | ngrok |
-| Test suite | pytest (76 tests) |
+| Local tunnel | ngrok (for dev) |
+| Tests | pytest — 76 tests, fully mocked |
 
 ---
 
-## Project structure
+## Getting started
 
-```
-test-auto-patcher/
-├── main.py            # The entire service — webhook, pipeline, GitHub API calls
-├── test_main.py       # 76 pytest tests, no real API keys needed
-├── test_webhook.py    # Fire a fake Dependabot alert at your local server
-├── requirements.txt   # Dependencies (requests==2.28.0 is intentionally old)
-├── .env.example       # Template — copy to .env and fill in real values
-└── .gitignore         # Keeps .env and venv out of version control
-```
-
----
-
-## Setup
-
-### 1. Clone and install
+### Clone and set up
 
 ```bash
 git clone https://github.com/Sarvjais12/test-auto-patcher.git
@@ -91,35 +64,36 @@ pip install -r requirements.txt
 pip install pytest httpx2
 ```
 
-### 2. Get your credentials
+### Grab your credentials
 
-**Groq API key** — free at [console.groq.com](https://console.groq.com). Sign in → API Keys → Create.
+**Groq API key** — free at [console.groq.com](https://console.groq.com). Sign in → API Keys → Create API Key. Starts with `gsk_`.
 
 **GitHub fine-grained PAT** — go to [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new):
-- Repository access → Only select repositories → pick this repo
-- Permissions → **Contents: Read and write**, **Pull requests: Read and write**
-- Nothing else needed — don't give it more than this
 
-### 3. Create your .env file
+- Repository access → Only select repositories → pick this repo
+- Permissions: **Contents** (Read and write), **Pull requests** (Read and write)
+- That's it. Don't give it anything else.
+
+### Set up your .env
 
 ```bash
 # Windows
 copy .env.example .env
 
-# Mac / Linux
+# Mac/Linux
 cp .env.example .env
 ```
 
-Open `.env` and fill in your real values:
+Fill in the real values:
 
-```env
-GITHUB_TOKEN=github_pat_your_real_token_here
-GROQ_API_KEY=gsk_your_real_groq_key_here
-WEBHOOK_SECRET_SARVJAIS12_TEST_AUTO_PATCHER=pick_any_strong_random_string
-GITHUB_WEBHOOK_SECRET=pick_any_strong_random_string
+```
+GITHUB_TOKEN=github_pat_your_real_token
+GROQ_API_KEY=gsk_your_real_groq_key
+WEBHOOK_SECRET_SARVJAIS12_TEST_AUTO_PATCHER=any_random_string_you_pick
+GITHUB_WEBHOOK_SECRET=same_or_different_random_string
 ```
 
-The webhook secret can be anything — just make sure it matches exactly what you put in your GitHub webhook settings later.
+The webhook secret can literally be anything — just make sure it matches what you set in the GitHub webhook settings later.
 
 ---
 
@@ -131,132 +105,106 @@ The webhook secret can be anything — just make sure it matches exactly what yo
 uvicorn main:app --port 3000 --reload
 ```
 
-You should see `Application startup complete.` with no warnings. If you see "Missing environment variables", your `.env` file isn't filled in correctly.
+You should see `Application startup complete.` with no warnings. If you see warnings about missing env vars, your `.env` isn't filled in correctly.
 
-Check it's alive:
+Quick sanity check:
 ```bash
 curl http://localhost:3000/
 # {"status":"GitHub Auto-Patcher is running 🚀"}
 ```
 
-### Run the test suite
+### Run the tests
 
 ```bash
 pytest test_main.py -v
 ```
 
-All 76 tests run against mocked APIs — no real tokens are used, no network calls made. Should pass in under 2 seconds.
+76 tests, all mocked — no network calls, no API keys needed. Runs in about 1-2 seconds. If all 76 pass, everything is wired up correctly.
 
-### Fire a fake webhook (tests the full pipeline)
+### Simulate a Dependabot alert
 
-With the server running in one terminal, open a second terminal and run:
+With the server running in one terminal, open a second one and run:
 
 ```bash
 python test_webhook.py
 ```
 
-This simulates exactly what GitHub sends for a Dependabot alert. You'll see the server receive it, call Groq, create a branch, and open a PR — all logged in real time.
+This fires exactly the same payload GitHub would send for a real alert. Watch the server terminal — you'll see it receive the alert, call Groq, create a branch, and open a PR in real time.
 
 ---
 
-## Connecting to real Dependabot
+## Connecting real Dependabot
 
-For the full end-to-end experience where real GitHub vulnerability alerts trigger the patcher automatically:
+For the full live demo where GitHub fires the webhook automatically:
 
-### 1. Expose your local server
-
+**Step 1 — Expose your local server:**
 ```bash
 ngrok http 3000
 ```
+Copy the HTTPS URL (looks like `https://xxxx.ngrok-free.app`).
 
-Copy the HTTPS URL it gives you (looks like `https://xxxx.ngrok-free.app`).
+**Step 2 — Set up the GitHub webhook:**
 
-### 2. Configure GitHub webhook
+Go to your repo → Settings → Webhooks → Add webhook (or edit the existing one):
 
-Go to your repo → **Settings** → **Webhooks** → **Add webhook** (or edit the existing one):
+- Payload URL: `https://xxxx.ngrok-free.app/webhook`
+- Content type: `application/json`
+- Secret: the string you put in `.env` for `WEBHOOK_SECRET_SARVJAIS12_TEST_AUTO_PATCHER`
+- Events: "Let me select individual events" → check **Repository vulnerability alerts** only
 
-- **Payload URL**: `https://xxxx.ngrok-free.app/webhook`
-- **Content type**: `application/json`
-- **Secret**: the same string you put in `.env` for `WEBHOOK_SECRET_SARVJAIS12_TEST_AUTO_PATCHER`
-- **Events**: select "Let me select individual events" → check **Repository vulnerability alerts** only
-
-Save. Your server terminal will immediately log:
+Save it. Your server will immediately log:
 ```
-INFO  GitHub ping received — webhook wiring confirmed
+INFO  GitHub ping received — webhook is wired up correctly
 ```
 
-### 3. Trigger a real alert
+**Step 3 — Trigger the alert:**
 
-The `requirements.txt` in this repo intentionally includes `requests==2.28.0`, which has known vulnerabilities. Once Dependabot scans the repo and detects it, it fires the webhook automatically. A PR will appear on GitHub within seconds.
+The `requirements.txt` in this repo has `requests==2.28.0` on purpose — it's a known vulnerable version that Dependabot will flag. Once it scans the repo and detects it, the webhook fires automatically and a PR appears on GitHub.
 
-You can also force a scan: repo → **Security** tab → **Dependabot alerts** → **Check for updates**.
+To force a scan immediately: repo → Security tab → Dependabot alerts → Check for updates.
 
 ---
 
-## Security design decisions
+## A few design decisions worth explaining
 
-A few things were deliberately built this way:
+**Per-repo webhook secrets** — I'm using separate secrets per repo (`WEBHOOK_SECRET_OWNER_REPO`) instead of one global secret. If you use a single shared secret and it leaks, an attacker can forge valid webhook payloads for every repo your service watches. With per-repo secrets, a leak only affects one repo.
 
-**Per-repo webhook secrets** — instead of one shared secret for all repos, each repo gets its own secret (e.g. `WEBHOOK_SECRET_ALICE_MY_REPO`). If one repo's secret leaks, an attacker can't forge webhooks for any other repo this service handles.
+**Fine-grained PAT** — the GitHub token is scoped to only this repo and only the two permissions it needs (Contents and Pull requests). A classic token with the full `repo` scope would give write access to every private repo on the account, which is way more than necessary.
 
-**Fine-grained PAT** — the GitHub token is scoped to only the repos this service manages, with only the two permissions it actually needs. A classic token with full `repo` scope would give write access to every private repo you own, which is unnecessary and dangerous.
+**Constant-time HMAC comparison** — the signature check uses `hmac.compare_digest` instead of `==`. Regular string comparison short-circuits as soon as it finds a mismatch, which means response time varies slightly depending on how many bytes are correct. An attacker could theoretically measure those timing differences to figure out the correct signature one byte at a time. `compare_digest` always takes the same time regardless of where the mismatch is.
 
-**Constant-time signature comparison** — the HMAC check uses `hmac.compare_digest` instead of `==`. This prevents timing attacks where an attacker could gradually learn the correct signature by measuring how long comparison takes.
+**Idempotency guard** — before running, the pipeline checks whether an open Auto-Patch PR already exists for that package. GitHub sometimes retries webhook deliveries when it doesn't get a response fast enough, which would otherwise cause two identical PRs.
 
-**BackgroundTasks** — the webhook endpoint returns 200 to GitHub immediately, then runs the patching pipeline in a background thread. This means the server never hits GitHub's 10-second webhook delivery timeout, even if Groq is slow.
-
-**Idempotency guard** — before running, the pipeline checks if an open Auto-Patch PR already exists for that package. If it does, it skips. This prevents duplicate PRs when GitHub retries a webhook delivery.
-
-**Branch cleanup on failure** — if the LLM patch gets committed to a branch but the PR creation fails, the pipeline doesn't leave orphaned branches in your repo. The branch is deleted automatically.
+**Fresh SHA on commit** — I re-fetch the file's SHA from the newly created branch instead of reusing the one from `find_manifest`. If anyone pushes to main between the manifest read and the commit, the original SHA becomes stale and GitHub rejects the commit with a 409. Fetching it from the branch after creation guarantees it's current.
 
 ---
 
 ## What it handles gracefully
 
-- **No patched version yet** — some vulnerability alerts fire before a fix exists. The service detects this and returns a clean `200 skipped` instead of crashing.
-- **Both Dependabot event formats** — GitHub has a legacy `repository_vulnerability_alert` format and a newer `dependabot_alert` format. Both are supported.
-- **Groq returns unchanged content** — if the LLM fails to make any change (because the package was already at the right version, or it misunderstood), the pipeline logs a warning and skips opening a PR rather than creating a no-diff PR that would just be noise.
-- **Commit fails mid-pipeline** — if writing the patch to GitHub fails (SHA conflict, network error, permissions), the orphaned branch is cleaned up before the error is raised.
-- **Null values in webhook payloads** — direct key access with `TypeError` catching instead of chained `.get()` calls, so a null owner field doesn't silently produce `None` and crash somewhere unexpected downstream.
+- **No fix available yet** — some alerts fire before a patch exists. Returns `200 skipped` instead of erroring.
+- **Both Dependabot event formats** — GitHub has a legacy format (`repository_vulnerability_alert`) and a newer one (`dependabot_alert`) with a different payload structure. Both work.
+- **Duplicate alerts** — if the same vulnerability fires twice, the second run finds the existing PR and skips without creating a duplicate.
+- **Commit fails mid-pipeline** — the empty branch gets cleaned up automatically instead of left dangling in the repo.
+- **Groq returns unchanged content** — detected and skipped with a warning log instead of opening a pointless no-diff PR.
 
 ---
 
-## Running tests in detail
+## Files
 
-The test suite is organized into 10 groups:
-
-| Test class | What it covers |
-|---|---|
-| `TestHealth` | Health endpoint returns 200 |
-| `TestSignatureVerification` | Valid sig, missing header, wrong sig, tampered payload |
-| `TestPerRepoSecretLookup` | Per-repo priority, global fallback, no secret → 500 |
-| `TestWebhookEndpoint` | All routing: ping, wrong event, bad JSON, wrong sig, good path |
-| `TestExtractDepLine` | PEP 508 underscore/hyphen normalisation |
-| `TestGroqOutputSanitization` | Markdown fence stripping |
-| `TestFindManifest` | 404 handling, directory listing, bad encoding |
-| `TestDuplicatePRGuard` | Skips when matching PR already open |
-| `TestRunPatchPipeline` | Full happy path + 6 failure modes |
-| `TestBranchCleanupOnFailure` | Orphaned branch deleted when commit fails |
+```
+main.py          — the whole service: webhook, pipeline, GitHub API calls
+test_main.py     — 76 pytest tests (run these first to verify everything works)
+test_webhook.py  — fire a fake Dependabot alert at your local server
+requirements.txt — requests==2.28.0 is intentionally old to trigger Dependabot
+.env.example     — copy to .env and fill in your real credentials
+.gitignore       — keeps .env and venv/ out of version control
+```
 
 ---
 
-## Environment variables reference
+## Known limitations
 
-| Variable | Required | Description |
-|---|---|---|
-| `GITHUB_TOKEN` | Yes | Fine-grained PAT with Contents + Pull requests permissions |
-| `GROQ_API_KEY` | Yes | Groq API key from console.groq.com |
-| `WEBHOOK_SECRET_{OWNER}_{REPO}` | Recommended | Per-repo webhook secret (lowercase hyphens → uppercase underscores) |
-| `GITHUB_WEBHOOK_SECRET` | Fallback | Global secret used if no per-repo secret matches |
-
----
-
-## Limitations and future improvements
-
-This is an MVP — it works well for the core use case but has some known constraints:
-
-- Only supports `requirements.txt` (Python) and `package.json` (Node) at the repo root. Monorepos with nested manifests aren't supported yet.
-- No retry logic for transient API failures (Groq or GitHub returning 503). A failed pipeline just logs an error and stops.
-- The LLM occasionally returns a version constraint that's technically valid but not ideal (e.g. `==2.31.0` instead of `>=2.31.0`). The PR should always be reviewed before merging.
-- ngrok's free tier gives a new URL every restart, so the GitHub webhook URL needs updating each session. A paid ngrok account or a deployed server would fix this.
-
+- Only looks for `requirements.txt` and `package.json` at the repo root. Monorepos or nested manifests aren't supported.
+- No retry logic for transient API failures. If Groq or GitHub returns a 503, the pipeline logs an error and stops — the next real alert will try again.
+- The LLM occasionally produces a constraint that's valid but not ideal (e.g. `==2.31.0` instead of `>=2.31.0`). Always review the PR diff before merging.
+- ngrok free tier generates a new URL each restart, so you have to update the GitHub webhook URL every session. A paid ngrok account or deploying to a server fixes this.
