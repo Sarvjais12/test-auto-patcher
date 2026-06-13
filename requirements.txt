@@ -2,7 +2,7 @@
 # so that GitHub Dependabot fires a vulnerability alert and the auto-patcher
 # has something real to fix.  After the patcher runs, this line will become
 # requests>=2.31.0  in the automated Pull Request.
-requests==2.28.0
+requests>=2.31.0
 
 # ── Service dependencies (needed to run main.py) ───────────────────────────
 fastapi>=0.100.0
