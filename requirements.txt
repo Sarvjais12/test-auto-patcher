@@ -1,11 +1,16 @@
-# Pin to a minimum known-good version for each dependency.
-# For a production deploy, run `pip freeze > requirements.lock` and commit
-# that file so every environment gets the exact same package graph.
+# requests is deliberately pinned to an old, vulnerable version (2.28.0)
+# so that GitHub Dependabot fires a vulnerability alert and the auto-patcher
+# has something real to fix.  After the patcher runs, this line will become
+# requests>=2.31.0  in the automated Pull Request.
+requests==2.28.0
 
+# ── Service dependencies (needed to run main.py) ───────────────────────────
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
 groq>=0.9.0
 PyGithub>=2.1.0
 python-dotenv>=1.0.0
-requests>=2.31.0
-urllib3==1.26.4
+
+# ── Test dependencies (only needed to run pytest) ──────────────────────────
+# pip install pytest httpx2
+# pytest test_main.py -v
